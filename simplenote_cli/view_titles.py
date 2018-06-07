@@ -4,6 +4,7 @@
 
 import re, time, datetime, urwid, subprocess
 from . import utils, view_note
+from bidi.algorithm import get_display
 
 class ViewTitles(urwid.ListBox):
 
@@ -49,6 +50,8 @@ class ViewTitles(urwid.ListBox):
         t = time.localtime(float(note['modifydate']))
         mod_time = time.strftime(self.config.get_config('format_strftime'), t)
         title = utils.get_note_title(note)
+        # BIDI conversion for the title in case it contains Hebrew or Arabic text
+        title = get_display(title)
         flags = utils.get_note_flags(note)
         tags  = utils.get_note_tags(note)
 

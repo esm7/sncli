@@ -84,19 +84,22 @@ class sncli:
             return None
         return diff
 
-    def exec_cmd_on_note(self, note, cmd=None, raw=False):
+    def exec_cmd_on_note(self, note, cmd=None, raw=False, is_markdown=False):
 
         if not cmd:
             cmd = self.get_editor()
         if not cmd:
             return None
 
-        tf = temp.tempfile_create(note if note else None, raw=raw, tempdir=self.tempdir)
+        tf = temp.tempfile_create(note if note else None, raw=raw, tempdir=self.tempdir,
+                is_markdown=is_markdown)
         fname = temp.tempfile_name(tf)
 
         focus_position = 0
         try:
-            focus_position = self.gui_body_get().focus_position
+            gui_body = self.gui_body_get()
+            if gui_body:
+                focus_position = self.gui_body_get().focus_position
         except IndexError:
             # focus position will fail if no notes available (listbox empty)
             # TODO: find a neater way to check than try/except
@@ -224,7 +227,10 @@ class sncli:
         self.sncli_loop.draw_screen()
 
     def gui_body_get(self):
-        return self.master_frame.contents['body'][0]
+        try:
+            return self.master_frame.contents['body'][0]
+        except AttributeError:
+            return None
 
     def gui_body_focus(self):
         self.master_frame.focus_position = 'body'
@@ -632,12 +638,13 @@ class sncli:
                 return key
 
             self.gui_clear()
-            content = self.exec_cmd_on_note(None)
+            create_as_markdown = self.config.get_config('default_markdown') == 'yes'
+            content = self.exec_cmd_on_note(None, is_markdown=create_as_markdown)
             self.gui_reset()
 
             if content:
                 self.log('New note created')
-                self.ndb.create_note(content)
+                self.ndb.create_note(content, as_markdown=create_as_markdown)
                 self.gui_update_view()
                 self.ndb.sync_worker_go()
 
@@ -1107,17 +1114,18 @@ class sncli:
 
     def cli_note_create(self, from_stdin, title):
 
+        create_as_markdown = self.config.get_config('default_markdown') == 'yes'
         if from_stdin:
             content = ''.join(sys.stdin)
         else:
-            content = self.exec_cmd_on_note(None)
+            content = self.exec_cmd_on_note(None, is_markdown=create_as_markdown)
 
         if title:
             content = title + '\n\n' + content if content else ''
 
         if content:
             self.log('New note created')
-            self.ndb.create_note(content)
+            self.ndb.create_note(content, as_markdown=create_as_markdown)
             self.sync_notes()
 
     def cli_note_import(self, from_stdin):

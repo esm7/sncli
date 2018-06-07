@@ -4,7 +4,7 @@
 
 import os, json, tempfile
 
-def tempfile_create(note, raw=False, tempdir=None):
+def tempfile_create(note, raw=False, tempdir=None, is_markdown=False):
     if raw:
         # dump the raw json of the note
         tf = tempfile.NamedTemporaryFile(suffix='.json', delete=False, dir=tempdir)
@@ -14,9 +14,9 @@ def tempfile_create(note, raw=False, tempdir=None):
         tf.flush()
     else:
         ext = '.txt'
-        if note and \
+        if is_markdown or (note and \
            'systemtags' in note and \
-           'markdown' in note['systemtags']:
+           'markdown' in note['systemtags']):
             ext = '.mkd'
         tf = tempfile.NamedTemporaryFile(suffix=ext, delete=False, dir=tempdir)
         if note:

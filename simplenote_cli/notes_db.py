@@ -324,7 +324,7 @@ class NotesDB():
 
         return new_key
 
-    def create_note(self, content):
+    def create_note(self, content, as_markdown=False):
         # need to get a key unique to this database. not really important
         # what it is, as long as it's unique.
         new_key = utils.generate_random_key()
@@ -344,6 +344,8 @@ class NotesDB():
                     'syncdate'   : 0, # never been synced with server
                     'tags'       : []
                    }
+        if as_markdown:
+            self._set_note_markdown(new_note, 1)
 
         self.notes[new_key] = new_note
 
@@ -410,17 +412,20 @@ class NotesDB():
             self.flag_what_changed(n, 'systemtags')
             self.log('Note {0} (key={1})'.format('pinned' if pinned else 'unpinned', key))
 
+    def _set_note_markdown(self, n, markdown):
+        if 'systemtags' not in n:
+            n['systemtags'] = []
+        systemtags = n['systemtags']
+        if markdown:
+            systemtags.append('markdown')
+        else:
+            systemtags.remove('markdown')
+
     def set_note_markdown(self, key, markdown):
         n = self.notes[key]
         old_markdown = utils.note_markdown(n)
         if markdown != old_markdown:
-            if 'systemtags' not in n:
-                n['systemtags'] = []
-            systemtags = n['systemtags']
-            if markdown:
-                systemtags.append('markdown')
-            else:
-                systemtags.remove('markdown')
+            self._set_note_markdown(n, markdown)
             n['modifydate'] = time.time()
             self.flag_what_changed(n, 'systemtags')
             self.log('Note markdown {0} (key={1})'.format('flagged' if markdown else 'unflagged', key))

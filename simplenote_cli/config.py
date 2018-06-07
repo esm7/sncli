@@ -28,6 +28,7 @@ class Config:
          'cfg_log_reversed'      : 'yes',
          'cfg_sn_host'           : 'simple-note.appspot.com',
          'cfg_tempdir'           : '',
+         'cfg_default_markdown'  : 'no',
 
          'kb_help'            : 'h',
          'kb_quit'            : 'q',
@@ -168,6 +169,7 @@ class Config:
         self.configs['log_timeout'] = [ cp.get(cfg_sec, 'cfg_log_timeout'), 'Log timeout' ]
         self.configs['log_reversed'] = [ cp.get(cfg_sec, 'cfg_log_reversed'), 'Log file reversed' ]
         self.configs['tempdir'] = [ cp.get(cfg_sec, 'cfg_tempdir'), 'Temporary directory for note storage' ]
+        self.configs['default_markdown'] = [ cp.get(cfg_sec, 'cfg_default_markdown'), 'Use Markdown as default for new notes' ]
 
         self.keybinds = collections.OrderedDict()
         self.keybinds['help'] = [ cp.get(cfg_sec, 'kb_help'), [ 'common' ], 'Help' ]

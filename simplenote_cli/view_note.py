@@ -7,6 +7,7 @@ from . import utils
 import re
 from .clipboard import Clipboard
 import logging
+from bidi.algorithm import get_display
 
 class ViewNote(urwid.ListBox):
 
@@ -31,12 +32,14 @@ class ViewNote(urwid.ListBox):
             return lines
         if self.old_note:
             for l in self.old_note['content'].split('\n'):
+                l = get_display(l)
                 lines.append(
                     urwid.AttrMap(urwid.Text(l.replace('\t', ' ' * self.tabstop)),
                                   'note_content_old',
                                   'note_content_old_focus'))
         else:
             for l in self.note['content'].split('\n'):
+                l = get_display(l)
                 lines.append(
                     urwid.AttrMap(urwid.Text(l.replace('\t', ' ' * self.tabstop)),
                                   'note_content',
