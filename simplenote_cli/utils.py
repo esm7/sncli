@@ -6,7 +6,7 @@
 # copyright 2012 by Charl P. Botha <cpbotha@vxlabs.com>
 # new BSD license
 
-import datetime, random, re
+import datetime, random, re, time
 
 # first line with non-whitespace should be the title
 note_title_re = re.compile('\s*(.*)\n?')
@@ -36,12 +36,12 @@ def get_note_tags(note):
 #   'm' - markdown
 def get_note_flags(note):
     flags = ''
-    flags += 'X' if float(note['modifydate']) > float(note['syncdate']) else ' '
+    flags += 'X' if float(note['modificationDate']) > float(note['syncdate']) else ' '
     flags += 'T' if 'deleted' in note and note['deleted'] else ' '
-    if 'systemtags' in note:
-        flags += '*' if 'pinned'    in note['systemtags'] else ' '
-        flags += 'S' if 'published' in note['systemtags'] else ' '
-        flags += 'm' if 'markdown'  in note['systemtags'] else ' '
+    if 'systemTags' in note:
+        flags += '*' if 'pinned'    in note['systemTags'] else ' '
+        flags += 'S' if 'published' in note['systemTags'] else ' '
+        flags += 'm' if 'markdown'  in note['systemTags'] else ' '
     else:
         flags += '   '
     return flags
@@ -105,19 +105,19 @@ def human_date(timestamp):
         return '%s %d, %d' % (dt.strftime('%b'), dt.day, dt.year)
 
 def note_published(n):
-    asystags = n.get('systemtags', 0)
+    asystags = n.get('systemTags', 0)
     if not asystags:
         return 0
     return 1 if 'published' in asystags else 0
 
 def note_pinned(n):
-    asystags = n.get('systemtags', 0)
+    asystags = n.get('systemTags', 0)
     if not asystags:
         return 0
     return 1 if 'pinned' in asystags else 0
 
 def note_markdown(n):
-    asystags = n.get('systemtags', 0)
+    asystags = n.get('systemTags', 0)
     if not asystags:
         return 0
     return 1 if 'markdown' in asystags else 0
@@ -155,9 +155,9 @@ def sort_notes_by_tags(notes, pinned_ontop=False):
 
 def sort_by_modify_date_pinned(a):
     if note_pinned(a.note):
-        return 100.0 * float(a.note.get('modifydate', 0))
+        return 100.0 * float(a.note.get('modificationDate', 0))
     else:
-        return float(a.note.get('modifydate', 0))
+        return float(a.note.get('modificationDate', 0))
 
 class KeyValueObject:
     """Store key=value pairs in this object and retrieve with o.key.
@@ -196,3 +196,19 @@ def build_regex_search(search_string):
             sspat = None
 
     return sspat
+
+def sanitise_dates(note):
+    """
+    sanitise the dates in a note (in-place)
+    ref issue #71
+    """
+    now = time.time()
+    max_delta = 31536000 # a year of seconds
+
+    if 'modificationDate' in note:
+        if float(note['modificationDate']) - now > max_delta:
+            note['modificationDate'] = now
+
+    if 'creationDate' in note:
+        if float(note['creationDate']) - now > max_delta:
+            note['creationDate'] = now

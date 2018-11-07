@@ -1,6 +1,7 @@
 
 # Copyright (c) 2014 Eric Davis
-# This file is *slightly* modified from simplynote.py.
+# This file is ~*slightly*~ heavily modified from simplynote.py.
+# Updated in 2018 to work with the new Simperium api.
 
 # -*- coding: utf-8 -*-
 """
@@ -13,22 +14,25 @@
     :license: MIT, see LICENSE for more details.
 """
 
-import urllib.parse
-from requests.exceptions import RequestException, ConnectionError
 import base64
-import time
 import datetime
+import json
 import logging
-import requests
+import time
+import urllib.parse
+import uuid
 
-try:
-    import json
-except ImportError:
-    try:
-        import simplejson as json
-    except ImportError:
-        # For Google AppEngine
-        from django.utils import simplejson as json
+import requests
+from requests.exceptions import ConnectionError, RequestException, HTTPError
+
+from simperium.core import Api, Auth
+
+# Application token provided for sncli.
+# Please do not abuse.
+APP_TOKEN = '26864ab5d6fd4a37b80343439f107350'
+
+# Simplenote app id on Simperium
+SIMPLENOTE_APP_ID = 'chalk-bump-f49'
 
 NOTE_FETCH_LENGTH = 100
 
@@ -38,17 +42,34 @@ class SimplenoteLoginFailed(Exception):
 class Simplenote(object):
     """ Class for interacting with the simplenote web service """
 
-    def __init__(self, username, password, host):
+    def __init__(self, username: str, password: str):
         """ object constructor """
-        self.username = urllib.parse.quote(username)
-        self.password = urllib.parse.quote(password)
-        self.AUTH_URL = 'https://{0}/api/login'.format(host)
-        self.DATA_URL = 'https://{0}/api2/data'.format(host)
-        self.INDX_URL = 'https://{0}/api2/index?'.format(host)
+        self.auth = Auth(SIMPLENOTE_APP_ID, APP_TOKEN)
+
+        self.api = None
+
+        self.username = username
+        self.password = password
         self.token = None
         self.status = 'offline'
 
-    def authenticate(self, user, password):
+        # attempt initial auth
+        try:
+            self.api = self.authenticate(self.username, self.password)
+        except ConnectionError as e:
+            logging.debug(e)
+            self.status = 'offline: no connection'
+        except HTTPError as e:
+            logging.debug(e)
+            self.status = 'offline: login failed; check username and password'
+        except KeyError as e:
+            logging.debug(e)
+            self.status = 'offline: login failed; check username and password'
+        except Exception as e:
+            logging.debug(e)
+            self.status = 'offline: unknown auth error; check log for details'
+
+    def authenticate(self, user: str, password: str) -> Api:
         """ Method to get simplenote auth token
 
         Arguments:
@@ -56,43 +77,14 @@ class Simplenote(object):
             - password (string): simplenote password
 
         Returns:
-            Simplenote API token as string
+            Simplenote API instance
 
         """
-        auth_params = "email=%s&password=%s" % (user, password)
-        values = base64.encodestring(auth_params.encode())
-        try:
-            res = requests.post(self.AUTH_URL, data=values)
-            token = res.text
-            if res.status_code != 200:
-                self.status = 'login failed with status {}, check credentials'.format(res.status_code)
-                token = None
-            else:
-                self.status = 'online'
-        except ConnectionError as e:
-            token = None
-            self.status = 'offline, connection error'
-        except RequestException as e:
-            token = None
-            self.status = 'login failed, check log'
 
-        logging.debug('AUTHENTICATE: ' + self.status)
-        return token
-
-    def get_token(self):
-        """ Method to retrieve an auth token.
-
-        The cached global token is looked up and returned if it exists. If it
-        is `None` a new one is requested and returned.
-
-        Returns:
-            Simplenote API token as string
-
-        """
-        if self.token is None:
-            self.token = self.authenticate(self.username, self.password)
-        return self.token
-
+        token = self.auth.authorize(user, password)
+        api = Api(SIMPLENOTE_APP_ID, token)
+        self.status = "online"
+        return api
 
     def get_note(self, noteid, version=None):
         """ method to get a specific note
@@ -108,35 +100,22 @@ class Simplenote(object):
             - status (int): 0 on sucesss and -1 otherwise
 
         """
-        # request note
-        params_version = ""
-        if version is not None:
-            params_version = '/' + str(version)
-         
-        params = {'auth': self.get_token(),
-                  'email': self.username }
-        url = '{}/{}{}'.format(self.DATA_URL, str(noteid), params_version)
-        #logging.debug('REQUEST: ' + self.DATA_URL+params)
-        try:
-            res = requests.get(url, params=params)
-            res.raise_for_status()
-            note = res.json()
-        except ConnectionError as e:
-            self.status = 'offline, connection error'
-            return e, -1
-        except RequestException as e:
-            # logging.debug('RESPONSE ERROR: ' + str(e))
-            return e, -1
-        except ValueError as e:
-            return e, -1
 
-        # # use UTF-8 encoding
-        # note["content"] = note["content"].encode('utf-8')
-        # # For early versions of notes, tags not always available
-        # if "tags" in note:
-        #     note["tags"] = [t.encode('utf-8') for t in note["tags"]]
-        #logging.debug('RESPONSE OK: ' + str(note))
-        return note, 0
+        if self.api is None:
+            return None, -1
+
+        try:
+            note = self.api.note.get(noteid, version=version)
+            if version is not None:
+                note['version'] = version
+            if note is None:
+                return None, -1
+            note['key'] = noteid
+            return note, 0 if note is not None else -1
+        except Exception as e:
+            logging.debug(e)
+            return None, -1
+
 
     def update_note(self, note):
         """ function to update a specific note object, if the note object does not
@@ -148,31 +127,35 @@ class Simplenote(object):
         Returns:
             A tuple `(note, status)`
 
-            - note (dict): note object
+            - note (dict): note object (or error instance if failure)
             - status (int): 0 on sucesss and -1 otherwise
 
         """
         # Note: all strings in notes stored as type str
         # - use s.encode('utf-8') when bytes type needed
 
-        # determine whether to create a new note or updated an existing one
-        params = {'auth': self.get_token(),
-                  'email': self.username}
-        if "key" in note:
-            # set modification timestamp if not set by client
-            if 'modifydate' not in note:
-                note["modifydate"] = time.time()
+        if self.api is None:
+            return None, -1
 
-            url = '%s/%s' % (self.DATA_URL, note["key"])
-        else:
-            url = self.DATA_URL
-
-        #logging.debug('REQUEST: ' + url + ' - ' + str(note))
         try:
-            data = urllib.parse.quote(json.dumps(note))
-            res = requests.post(url, data=data, params=params)
-            res.raise_for_status()
-            note = res.json()
+            # determine whether to create a new note or updated an existing one
+            if 'key' not in note:
+                # new note; build full note object to send to avoid 400 errors
+                note = {
+                    'tags': note['tags'],
+                    'deleted': note['deleted'],
+                    'content': note['content'],
+                    'modificationDate': note['modificationDate'],
+                    'creationDate': note['creationDate'],
+                    'systemTags': [],
+                    'shareURL': '',
+                    'publishURL': '',
+                }
+                key, note = self.api.note.new(note, include_response=True)
+                note['version'] = 1
+            else:
+                key, note = self.api.note.set(note['key'], note, include_response=True)
+            note['key'] = key
         except ConnectionError as e:
             self.status = 'offline, connection error'
             return e, -1
@@ -182,7 +165,6 @@ class Simplenote(object):
             return e, -1
         except ValueError as e:
             return e, -1
-        #logging.debug('RESPONSE OK: ' + str(note))
         return note, 0
 
     def add_note(self, note):
@@ -210,6 +192,16 @@ class Simplenote(object):
         else:
             return "No string or valid note.", -1
 
+    def _convert_index_to_note(cls, entry):
+        """
+        Helper function to convert a note as returned in the api index method
+        to how sncli expects it.
+        """
+        note = entry['d']
+        note['key'] = entry['id']
+        note['version'] = entry['v']
+        return note
+
     def get_note_list(self, since=None, tags=[]):
         """ function to get the note list
 
@@ -227,77 +219,49 @@ class Simplenote(object):
         Returns:
             A tuple `(notes, status)`
 
-            - notes (list): A list of note objects with all properties set except
-            `content`.
+            - notes (list): A list of note objects with all properties set.
             - status (int): 0 on sucesss and -1 otherwise
 
         """
         # initialize data
         status = 0
-        notes = { "data" : [] }
-        json_data = {}
+        note_list = []
+        mark = None
 
-        # get the note index
-        params = {'auth': self.get_token(),
-                  'email': self.username,
-                  'length': NOTE_FETCH_LENGTH
-                  }
-        if since is not None:
-            params['since'] = since
+        if self.api is None:
+            return [], -1
 
-        # perform initial HTTP request
-        try:
-            #logging.debug('REQUEST: ' + self.INDX_URL+params)
-            res = requests.get(self.INDX_URL, params=params)
-            res.raise_for_status()
-            #logging.debug('RESPONSE OK: ' + str(res))
-            json_data = res.json()
-            notes["data"].extend(json_data["data"])
-        except ConnectionError as e:
-            self.status = 'offline, connection error'
-            status = -1
-        except RequestException as e:
-            # if problem with network request/response
-            status = -1
-        except ValueError as e:
-            # if invalid json data
-            status = -1
+        while True:
 
-        # get additional notes if bookmark was set in response
-        while "mark" in json_data:
-            params = {'auth': self.get_token(),
-                      'email': self.username,
-                      'mark': json_data['mark'],
-                      'length': NOTE_FETCH_LENGTH
-                      }
-            if since is not None:
-                params['since'] = since
-
-            # perform the actual HTTP request
             try:
-                #logging.debug('REQUEST: ' + self.INDX_URL+params)
-                res = requests.get(self.INDX_URL, params=params)
-                res.raise_for_status()
-                json_data = res.json()
-                #logging.debug('RESPONSE OK: ' + str(res))
-                notes["data"].extend(json_data["data"])
+                data = self.api.note.index(data=True, mark=mark, limit=NOTE_FETCH_LENGTH)
+
+                note_list.extend(map(self._convert_index_to_note, data['index']))
+
+                if 'mark' not in data:
+                    break
+                mark = data['mark']
+
             except ConnectionError as e:
                 self.status = 'offline, connection error'
                 status = -1
+                break
             except RequestException as e:
                 # if problem with network request/response
                 status = -1
+                break
             except ValueError as e:
                 # if invalid json data
                 status = -1
-
-        # parse data fields in response
-        note_list = notes["data"]
+                break
 
         # Can only filter for tags at end, once all notes have been retrieved.
         #Below based on simplenote.vim, except we return deleted notes as well
         if (len(tags) > 0):
             note_list = [n for n in note_list if (len(set(n["tags"]).intersection(tags)) > 0)]
+
+        if since is not None:
+            note_list = [n for n in note_list if n['modificationDate'] > since]
 
         return note_list, status
 
@@ -319,7 +283,7 @@ class Simplenote(object):
         if (status == -1):
             return note, status
         # set deleted property
-        note["deleted"] = 1
+        note["deleted"] = True
         # update note
         return self.update_note(note)
 
@@ -341,18 +305,12 @@ class Simplenote(object):
         if (status == -1):
             return note, status
 
-        params = {'auth': self.get_token(),
-                  'email': self.username }
-        url = '{}/{}'.format(self.DATA_URL, str(note_id))
-
         try:
-            #logging.debug('REQUEST DELETE: ' + self.DATA_URL+params)
-            res = requests.delete(url, params=params)
-            res.raise_for_status()
+            # self.api is obviously ok if self.trash_note worked
+            self.api.note.delete(note_id)
         except ConnectionError as e:
             self.status = 'offline, connection error'
             return e, -1
         except RequestException as e:
             return e, -1
         return {}, 0
-

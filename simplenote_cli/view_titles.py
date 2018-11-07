@@ -47,7 +47,7 @@ class ViewTitles(urwid.ListBox):
         %N -- note title
         """
 
-        t = time.localtime(float(note['modifydate']))
+        t = time.localtime(float(note['modificationDate']))
         mod_time = time.strftime(self.config.get_config('format_strftime'), t)
         title = utils.get_note_title(note)
         # BIDI conversion for the title in case it contains Hebrew or Arabic text

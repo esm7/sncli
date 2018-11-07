@@ -6,7 +6,7 @@
 from setuptools import setup
 import simplenote_cli
 
-deps = ['urwid', 'requests']
+deps = ['urwid', 'requests', 'Simperium3']
 
 setup(
       name=simplenote_cli.__productname__,

@@ -97,11 +97,10 @@ class sncli:
 
         focus_position = 0
         try:
-            gui_body = self.gui_body_get()
-            if gui_body:
-                focus_position = self.gui_body_get().focus_position
-        except IndexError:
-            # focus position will fail if no notes available (listbox empty)
+            focus_position = self.gui_body_get().focus_position
+        except (IndexError, AttributeError):
+            # Focus position will fail if no notes available (listbox empty), or
+            # if no gui running (eg. when called as `sncli create`).
             # TODO: find a neater way to check than try/except
             pass
 
@@ -331,7 +330,7 @@ class sncli:
 
         # toggle the deleted flag
         note = self.ndb.get_note(key)
-        self.ndb.set_note_deleted(key, 0 if note['deleted'] else 1)
+        self.ndb.set_note_deleted(key, False if note['deleted'] else True)
 
         if self.gui_body_get().__class__ == view_titles.ViewTitles:
             self.view_titles.update_note_title()
@@ -678,6 +677,7 @@ class sncli:
             if not content:
                 return None
 
+            # TODO: why is comparing md5s better than comparing the strings directly?
             md5_old = hashlib.md5(note['content'].encode('utf-8')).digest()
             md5_new = hashlib.md5(content.encode('utf-8')).digest()
 
@@ -763,8 +763,8 @@ class sncli:
                 note = lb.note
 
             pin = 1
-            if 'systemtags' in note:
-                if 'pinned' in note['systemtags']: pin = 0
+            if 'systemTags' in note:
+                if 'pinned' in note['systemTags']: pin = 0
                 else:                              pin = 1
 
             self.ndb.set_note_pinned(note['localkey'], pin)
@@ -787,8 +787,8 @@ class sncli:
                 note = lb.note
 
             md = 1
-            if 'systemtags' in note:
-                if 'markdown' in note['systemtags']: md = 0
+            if 'systemTags' in note:
+                if 'markdown' in note['systemTags']: md = 0
                 else:                                md = 1
 
             self.ndb.set_note_markdown(note['localkey'], md)
@@ -1082,7 +1082,7 @@ class sncli:
 
         w = 60
         sep = '+' + '-'*(w+2) + '+'
-        t = time.localtime(float(note['modifydate']))
+        t = time.localtime(float(note['modificationDate']))
         mod_time = time.strftime('%a, %d %b %Y %H:%M:%S', t)
         title = utils.get_note_title(note)
         flags = utils.get_note_flags(note)
